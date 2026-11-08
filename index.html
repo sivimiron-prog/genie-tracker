@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0000">
+<title>Genie Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root { --bg:#070000; --panel:#140303; --line:#3a0a0a; --red:#ff3b30; --dim:#a32a22; --text:#ff6a5c; --ok:#ff9d3b; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--text); font:16px/1.4 system-ui, sans-serif; }
+  body.white { --bg:#111; --panel:#1d1d1d; --line:#333; --red:#ff5a4f; --dim:#999; --text:#eee; --ok:#7bd88f; }
+  header { display:flex; align-items:center; gap:10px; padding:12px 14px 6px; }
+  header h1 { font-size:18px; margin:0; flex:1; letter-spacing:.5px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:#400; }
+  .dot.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  nav { display:flex; gap:6px; padding:0 10px 8px; }
+  nav button { flex:1; }
+  main { padding:0 10px 90px; }
+  section { display:none; } section.show { display:block; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; margin:10px 0; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin:0 0 8px; }
+  button { background:#200606; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:12px 10px;
+           font-size:15px; font-weight:600; touch-action:manipulation; user-select:none; }
+  body.white button { background:#2a2a2a; }
+  button.sel { background:var(--red); color:#000; border-color:var(--red); }
+  button.big { width:100%; padding:18px; font-size:19px; }
+  button:disabled { opacity:.35; }
+  .row { display:flex; gap:8px; margin:6px 0; } .row > * { flex:1; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-variant-numeric:tabular-nums; }
+  .kv b { color:var(--dim); font-weight:500; }
+  .huge { font-size:30px; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; }
+  .hint { color:var(--dim); font-size:13px; margin:6px 0; }
+  .ok { color:var(--ok); }
+  input, select { background:#0c0101; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:9px; font-size:15px; width:100%; }
+  body.white input, body.white select { background:#000; }
+  label { font-size:13px; color:var(--dim); display:block; margin-bottom:3px; }
+  canvas { width:100%; max-width:320px; display:block; margin:6px auto; }
+  #log { font:12px ui-monospace, monospace; white-space:pre-wrap; max-height:180px; overflow:auto; color:var(--dim); }
+  .bar { position:relative; height:12px; background:#0c0101; border:1px solid var(--line); border-radius:6px; margin:6px 0 2px; }
+  .bar i { position:absolute; top:-3px; width:4px; height:16px; background:var(--red); border-radius:2px; transition:left .15s; }
+  .bar::after { content:''; position:absolute; left:50%; top:-4px; height:18px; border-left:1px dashed var(--dim); }
+  ol { padding-left:20px; margin:6px 0; } li { margin:4px 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="bleDot"></span>
+  <h1>Genie Tracker</h1>
+  <button id="btnConnect">Connect</button>
+</header>
+<nav>
+  <button data-tab="track" class="sel">Track</button>
+  <button data-tab="align">Align</button>
+  <button data-tab="setup">Setup</button>
+</nav>
+<main>
+
+<!-- ================= TRACK ================= -->
+<section id="track" class="show">
+  <div class="card">
+    <h2>Target</h2>
+    <div class="row">
+      <button data-target="SID" class="sel">★ Stars</button>
+      <button data-target="SUN">☀ Sun</button>
+      <button data-target="MOON">☾ Moon</button>
+    </div>
+    <div class="hint" id="rateInfo">Sidereal rate: 1 turn / 23 h 56 min</div>
+    <div class="row">
+      <button class="big" id="btnStart">Start tracking</button>
+    </div>
+    <div class="row"><button class="big" id="btnStop">Stop</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Status</h2>
+    <div class="kv">
+      <b>Mode</b><span id="sMode">—</span>
+      <b>Rate</b><span id="sRate">—</span>
+      <b>Hemisphere</b><span id="sHemi">—</span>
+      <b>Running</b><span id="sTime">—</span>
+      <b>Tracking error</b><span id="sErr">—</span>
+      <b>Counts / turn</b><span id="sCpr">—</span>
+      <b>Magnet</b><span id="sMag">—</span>
+    </div>
+    <div class="hint" id="sFault"></div>
+  </div>
+
+  <div class="card">
+    <h2>Framing (hold to move)</h2>
+    <div class="row">
+      <button data-jog="-1023">◀◀</button><button data-jog="-600">◀</button>
+      <button data-jog="600">▶</button><button data-jog="1023">▶▶</button>
+    </div>
+    <div class="row">
+      <button data-move="-15">−15°</button><button data-move="-1">−1°</button>
+      <button data-move="1">+1°</button><button data-move="15">+15°</button>
+    </div>
+    <div class="hint">Moving stops tracking. Tap Start again when framed.</div>
+  </div>
+</section>
+
+<!-- ================= ALIGN ================= -->
+<section id="align">
+  <div class="card">
+    <h2>Location (GPS works without internet)</h2>
+    <button class="big" id="btnGps">Get GPS position</button>
+    <div class="kv" style="margin-top:8px">
+      <b>Latitude</b><span id="aLat">—</span>
+      <b>Longitude</b><span id="aLon">—</span>
+      <b>Hemisphere</b><span id="aHemi">—</span>
+      <b>Magnetic declination</b><span id="aDecl">—</span>
+      <b>Point axis at</b><span id="aTarget">—</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Polar alignment with phone sensors</h2>
+    <label>How the phone sits on the tracker</label>
+    <select id="axisSel">
+      <option value="screen">Lying flat on the rotating plate (screen faces the pole)</option>
+      <option value="top">Top edge points along the axis, toward the pole</option>
+      <option value="back">Back of phone faces the pole</option>
+    </select>
+    <div class="row" style="margin-top:8px">
+      <button id="btnSensors" class="big">Start sensors</button>
+    </div>
+    <div class="huge" id="alignMain">—</div>
+    <div class="hint">Altitude (tilt)</div>
+    <div class="bar"><i id="barAlt" style="left:50%"></i></div>
+    <div id="alignAlt" class="hint">—</div>
+    <div class="hint">Azimuth (left / right)</div>
+    <div class="bar"><i id="barAz" style="left:50%"></i></div>
+    <div id="alignAz" class="hint">—</div>
+    <div class="kv" style="margin-top:6px">
+      <b>Axis points at</b><span id="axisNow">—</span>
+      <b>Compass (true)</b><span id="compassNow">—</span>
+    </div>
+    <div class="row"><button id="btnBeep">Beep when aligned: off</button></div>
+    <div class="hint">
+      Tilt comes from the accelerometer and is accurate (±0.2–0.5°). Direction comes from the compass and is the weak point:
+      ±2–5°, and the motor's magnet, tripod and steel bolts pull it off. For the best result use the
+      <b>landmark method</b>: hold the phone flat, away from the tracker and tripod, turn until the compass shows
+      true north <span id="lmDir">(0°)</span>, pick a distant tree or light in that direction, then aim the tracker at it by eye.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 id="psTitle">Pole star (when the sky clears)</h2>
+    <canvas id="poleCanvas" width="320" height="320"></canvas>
+    <div class="kv">
+      <b>Star</b><span id="psName">—</span>
+      <b>Distance from pole</b><span id="psDist">—</span>
+      <b>Naked eye</b><span id="psClock">—</span>
+      <b>Polar scope (inverted)</b><span id="psClockInv">—</span>
+    </div>
+    <div class="hint" id="psHint"></div>
+  </div>
+
+  <div class="card">
+    <h2>How good is good enough?</h2>
+    <div class="row">
+      <div><label>Lens (mm)</label><input id="dFocal" type="number" value="24"></div>
+      <div><label>Exposure (min)</label><input id="dMin" type="number" value="6"></div>
+      <div><label>Pixel (µm)</label><input id="dPix" type="number" value="4.3" step="0.1"></div>
+    </div>
+    <div id="driftOut" class="hint"></div>
+  </div>
+</section>
+
+<!-- ================= SETUP ================= -->
+<section id="setup">
+  <div class="card">
+    <h2>1 · Calibrate (once)</h2>
+    <ol class="hint">
+      <li>Put a piece of tape across the rotating plate and the base so they line up.</li>
+      <li>Tap <b>Start calibration</b>. The plate turns at full speed (~35 s per turn).</li>
+      <li>Let it pass the mark 1–3 times, then tap <b>Stop</b> the moment the tape lines up again.</li>
+      <li>Set how many full turns it made. 3 turns is 3× more accurate.</li>
+    </ol>
+    <div class="row">
+      <button id="btnCalStart">Start calibration</button>
+      <button id="btnCalStop">Stop at mark</button>
+    </div>
+    <label>Full turns completed</label>
+    <input id="calTurns" type="number" value="3" min="1" step="1">
+    <div class="hint" id="calOut"></div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Direction check</h2>
+    <div class="hint">Daytime test: aim the camera at a distant object, start <b>Stars</b> and watch for 2 minutes.
+      The view should slowly drift the way the sky moves (east → west, like the Sun). If it goes the other way, flip it here.</div>
+    <div class="row"><button id="btnRev">Reverse direction: off</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Advanced</h2>
+    <label>Counts per output turn (from calibration)</label>
+    <div class="row"><input id="cprIn" type="number"><button id="btnCpr" style="flex:0 0 90px">Set</button></div>
+    <label>Tracking pulse power (200–1023, default 650)</label>
+    <div class="row"><input id="kickIn" type="number" value="650"><button id="btnKick" style="flex:0 0 90px">Set</button></div>
+    <label>Hemisphere (set automatically from GPS)</label>
+    <div class="row"><button data-hemi="N">North</button><button data-hemi="S">South</button></div>
+    <div class="row"><button id="btnTheme">Night red / white</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div class="row"><input id="rawCmd" placeholder="Raw command, e.g. STATUS"><button id="btnRaw" style="flex:0 0 90px">Send</button></div>
+    <div id="log"></div>
+  </div>
+</section>
+</main>
+
+<script>
+const WMM_EPOCH=2025.0;
+const WMM_COF=[[1,0,-29351.8,0.0,12.0,0.0],[1,1,-1410.8,4545.4,9.7,-21.5],[2,0,-2556.6,0.0,-11.6,0.0],[2,1,2951.1,-3133.6,-5.2,-27.7],[2,2,1649.3,-815.1,-8.0,-12.1],[3,0,1361.0,0.0,-1.3,0.0],[3,1,-2404.1,-56.6,-4.2,4.0],[3,2,1243.8,237.5,0.4,-0.3],[3,3,453.6,-549.5,-15.6,-4.1],[4,0,895.0,0.0,-1.6,0.0],[4,1,799.5,278.6,-2.4,-1.1],[4,2,55.7,-133.9,-6.0,4.1],[4,3,-281.1,212.0,5.6,1.6],[4,4,12.1,-375.6,-7.0,-4.4],[5,0,-233.2,0.0,0.6,0.0],[5,1,368.9,45.4,1.4,-0.5],[5,2,187.2,220.2,0.0,2.2],[5,3,-138.7,-122.9,0.6,0.4],[5,4,-142.0,43.0,2.2,1.7],[5,5,20.9,106.1,0.9,1.9],[6,0,64.4,0.0,-0.2,0.0],[6,1,63.8,-18.4,-0.4,0.3],[6,2,76.9,16.8,0.9,-1.6],[6,3,-115.7,48.8,1.2,-0.4],[6,4,-40.9,-59.8,-0.9,0.9],[6,5,14.9,10.9,0.3,0.7],[6,6,-60.7,72.7,0.9,0.9],[7,0,79.5,0.0,-0.0,0.0],[7,1,-77.0,-48.9,-0.1,0.6],[7,2,-8.8,-14.4,-0.1,0.5],[7,3,59.3,-1.0,0.5,-0.8],[7,4,15.8,23.4,-0.1,0.0],[7,5,2.5,-7.4,-0.8,-1.0],[7,6,-11.1,-25.1,-0.8,0.6],[7,7,14.2,-2.3,0.8,-0.2],[8,0,23.2,0.0,-0.1,0.0],[8,1,10.8,7.1,0.2,-0.2],[8,2,-17.5,-12.6,0.0,0.5],[8,3,2.0,11.4,0.5,-0.4],[8,4,-21.7,-9.7,-0.1,0.4],[8,5,16.9,12.7,0.3,-0.5],[8,6,15.0,0.7,0.2,-0.6],[8,7,-16.8,-5.2,-0.0,0.3],[8,8,0.9,3.9,0.2,0.2],[9,0,4.6,0.0,-0.0,0.0],[9,1,7.8,-24.8,-0.1,-0.3],[9,2,3.0,12.2,0.1,0.3],[9,3,-0.2,8.3,0.3,-0.3],[9,4,-2.5,-3.3,-0.3,0.3],[9,5,-13.1,-5.2,0.0,0.2],[9,6,2.4,7.2,0.3,-0.1],[9,7,8.6,-0.6,-0.1,-0.2],[9,8,-8.7,0.8,0.1,0.4],[9,9,-12.9,10.0,-0.1,0.1],[10,0,-1.3,0.0,0.1,0.0],[10,1,-6.4,3.3,0.0,0.0],[10,2,0.2,0.0,0.1,-0.0],[10,3,2.0,2.4,0.1,-0.2],[10,4,-1.0,5.3,-0.0,0.1],[10,5,-0.6,-9.1,-0.3,-0.1],[10,6,-0.9,0.4,0.0,0.1],[10,7,1.5,-4.2,-0.1,0.0],[10,8,0.9,-3.8,-0.1,-0.1],[10,9,-2.7,0.9,-0.0,0.2],[10,10,-3.9,-9.1,-0.0,-0.0],[11,0,2.9,0.0,0.0,0.0],[11,1,-1.5,0.0,-0.0,-0.0],[11,2,-2.5,2.9,0.0,0.1],[11,3,2.4,-0.6,0.0,-0.0],[11,4,-0.6,0.2,0.0,0.1],[11,5,-0.1,0.5,-0.1,-0.0],[11,6,-0.6,-0.3,0.0,-0.0],[11,7,-0.1,-1.2,-0.0,0.1],[11,8,1.1,-1.7,-0.1,-0.0],[11,9,-1.0,-2.9,-0.1,0.0],[11,10,-0.2,-1.8,-0.1,0.0],[11,11,2.6,-2.3,-0.1,0.0],[12,0,-2.0,0.0,0.0,0.0],[12,1,-0.2,-1.3,0.0,-0.0],[12,2,0.3,0.7,-0.0,0.0],[12,3,1.2,1.0,-0.0,-0.1],[12,4,-1.3,-1.4,-0.0,0.1],[12,5,0.6,-0.0,-0.0,-0.0],[12,6,0.6,0.6,0.1,-0.0],[12,7,0.5,-0.1,-0.0,-0.0],[12,8,-0.1,0.8,0.0,0.0],[12,9,-0.4,0.1,0.0,-0.0],[12,10,-0.2,-1.0,-0.1,-0.0],[12,11,-1.3,0.1,-0.0,0.0],[12,12,-0.7,0.2,-0.1,-0.1]];
+// ===== Astronomy + magnetic model (runs fully offline) =====
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const norm360 = x => ((x % 360) + 360) % 360;
+const wrap180 = x => { x = norm360(x); return x > 180 ? x - 360 : x; };
+
+// ---- World Magnetic Model 2025 (valid 2025-2030): magnetic declination ----
+function makeWMM() {
+  const N = 12, S = 13;
+  const c = [], cd = [], k = [], p = [], dp = [], tc = [];
+  for (let i = 0; i < S; i++) { c[i] = Array(S).fill(0); cd[i] = Array(S).fill(0); k[i] = Array(S).fill(0);
+    p[i] = Array(S).fill(0); dp[i] = Array(S).fill(0); tc[i] = Array(S).fill(0); }
+  for (const [n, m, g, h, gd, hd] of WMM_COF) {
+    c[m][n] = g; cd[m][n] = gd;
+    if (m !== 0) { c[n][m - 1] = h; cd[n][m - 1] = hd; }
+  }
+  const snorm = Array(S * S).fill(0); snorm[0] = 1;
+  const fn = Array(S).fill(0), fm = Array(S).fill(0);
+  for (let n = 1; n <= N; n++) {
+    snorm[n] = snorm[n - 1] * (2 * n - 1) / n;
+    let j = 2;
+    for (let m = 0; m <= n; m++) {
+      k[m][n] = ((n - 1) * (n - 1) - m * m) / ((2 * n - 1) * (2 * n - 3));
+      if (m > 0) {
+        const flnmj = ((n - m + 1) * j) / (n + m);
+        snorm[n + m * S] = snorm[n + (m - 1) * S] * Math.sqrt(flnmj);
+        j = 1;
+        c[n][m - 1] *= snorm[n + m * S]; cd[n][m - 1] *= snorm[n + m * S];
+      }
+      c[m][n] *= snorm[n + m * S]; cd[m][n] *= snorm[n + m * S];
+    }
+    fn[n] = n + 1; fm[n] = n;
+  }
+  k[1][1] = 0;
+  const a = 6378.137, b = 6356.7523142, re = 6371.2;
+  const a2 = a * a, b2 = b * b, c2 = a2 - b2, a4 = a2 * a2, b4 = b2 * b2, c4 = a4 - b4;
+
+  // returns declination in degrees (east positive). alt in km, year as decimal year
+  return function declination(glat, glon, altKm, year) {
+    const dt = year - WMM_EPOCH;
+    const rlat = glat * D2R, rlon = glon * D2R;
+    const sp = Array(S).fill(0), cp = Array(S).fill(0);
+    sp[1] = Math.sin(rlon); cp[0] = 1; cp[1] = Math.cos(rlon);
+    const srlat = Math.sin(rlat), crlat = Math.cos(rlat), srlat2 = srlat * srlat, crlat2 = crlat * crlat;
+    const q = Math.sqrt(a2 - c2 * srlat2), q1 = altKm * q;
+    const q2 = ((q1 + a2) / (q1 + b2)) ** 2;
+    const ct = srlat / Math.sqrt(q2 * crlat2 + srlat2);
+    let st = Math.sqrt(1 - ct * ct); if (st < 1e-10) st = 1e-10;
+    const r2 = altKm * altKm + 2 * q1 + (a4 - c4 * srlat2) / (q * q), r = Math.sqrt(r2);
+    const d = Math.sqrt(a2 * crlat2 + b2 * srlat2);
+    const ca = (altKm + d) / r, sa = c2 * crlat * srlat / (r * d);
+    for (let m = 2; m <= N; m++) { sp[m] = sp[1] * cp[m - 1] + cp[1] * sp[m - 1]; cp[m] = cp[1] * cp[m - 1] - sp[1] * sp[m - 1]; }
+    const aor = re / r; let ar = aor * aor;
+    let br = 0, bt = 0, bp = 0;
+    p[0][0] = 1; dp[0][0] = 0;
+    for (let n = 1; n <= N; n++) {
+      ar *= aor;
+      for (let m = 0; m <= n; m++) {
+        if (n === m) { p[m][n] = st * p[m - 1][n - 1]; dp[m][n] = st * dp[m - 1][n - 1] + ct * p[m - 1][n - 1]; }
+        else if (n === 1 && m === 0) { p[m][n] = ct * p[m][n - 1]; dp[m][n] = ct * dp[m][n - 1] - st * p[m][n - 1]; }
+        else if (n > 1 && n !== m) {
+          if (m > n - 2) { p[m][n - 2] = 0; dp[m][n - 2] = 0; }
+          p[m][n] = ct * p[m][n - 1] - k[m][n] * p[m][n - 2];
+          dp[m][n] = ct * dp[m][n - 1] - st * p[m][n - 1] - k[m][n] * dp[m][n - 2];
+        }
+        tc[m][n] = c[m][n] + dt * cd[m][n];
+        if (m !== 0) tc[n][m - 1] = c[n][m - 1] + dt * cd[n][m - 1];
+        const par = ar * p[m][n];
+        let t1, t2;
+        if (m === 0) { t1 = tc[m][n] * cp[m]; t2 = tc[m][n] * sp[m]; }
+        else { t1 = tc[m][n] * cp[m] + tc[n][m - 1] * sp[m]; t2 = tc[m][n] * sp[m] - tc[n][m - 1] * cp[m]; }
+        bt -= ar * t1 * dp[m][n];
+        bp += fm[m] * t2 * par;
+        br += fn[n] * t1 * par;
+      }
+    }
+    bp /= st;
+    const bx = -bt * ca - br * sa, by = bp;
+    return Math.atan2(by, bx) * R2D;
+  };
+}
+const magDeclination = makeWMM();
+const decimalYear = date => { const y = date.getUTCFullYear(); const s = Date.UTC(y, 0, 1), e = Date.UTC(y + 1, 0, 1); return y + (date - s) / (e - s); };
+
+// ---- Time ----
+const julian = ms => ms / 86400000 + 2440587.5;
+function lstDeg(ms, lonDeg) {
+  const jd = julian(ms), T = (jd - 2451545) / 36525;
+  const gmst = 280.46061837 + 360.98564736629 * (jd - 2451545) + 0.000387933 * T * T - T * T * T / 38710000;
+  return norm360(gmst + lonDeg);
+}
+
+// ---- Precession J2000 -> date (for the pole stars) ----
+function precess(raDeg, decDeg, ms) {
+  const T = (julian(ms) - 2451545) / 36525;
+  const zeta = (2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) / 3600 * D2R;
+  const z = (2306.2181 * T + 1.09468 * T * T + 0.018203 * T ** 3) / 3600 * D2R;
+  const th = (2004.3109 * T - 0.42665 * T * T - 0.041833 * T ** 3) / 3600 * D2R;
+  const a0 = raDeg * D2R, d0 = decDeg * D2R;
+  const A = Math.cos(d0) * Math.sin(a0 + zeta);
+  const B = Math.cos(th) * Math.cos(d0) * Math.cos(a0 + zeta) - Math.sin(th) * Math.sin(d0);
+  const C = Math.sin(th) * Math.cos(d0) * Math.cos(a0 + zeta) + Math.cos(th) * Math.sin(d0);
+  const ra = norm360((Math.atan2(A, B) + z) * R2D);
+  const dec = Math.sign(C) * Math.acos(Math.min(1, Math.hypot(A, B))) * R2D;  // accurate near the pole
+  return { ra, dec };
+}
+const POLARIS = { ra: 37.95456067, dec: 89.26410897, name: 'Polaris' };
+const SIGMA_OCT = { ra: 317.19525, dec: -88.95650, name: 'Sigma Octantis' };
+
+// Pole star position: hour angle, distance from pole, clock positions
+function poleStar(ms, latDeg, lonDeg) {
+  const star = latDeg >= 0 ? POLARIS : SIGMA_OCT;
+  const p = precess(star.ra, star.dec, ms);
+  const ha = norm360(lstDeg(ms, lonDeg) - p.ra);          // degrees
+  const dist = 90 - Math.abs(p.dec);                       // degrees from pole
+  const haH = ha / 15;
+  // Upright (naked-eye) view facing the pole, 12 o'clock = toward zenith
+  let clock = latDeg >= 0 ? 12 - haH / 2 : 12 + haH / 2;
+  clock = ((clock % 12) + 12) % 12; if (clock === 0) clock = 12;
+  let clockInv = ((clock + 6) % 12) || 12;                 // inverted polar scope view
+  return { name: star.name, ha, dist, ra: p.ra, dec: p.dec, clock, clockInv };
+}
+
+// ---- Sun & Moon (low precision, plenty for tracking rates) ----
+function eclToEq(lamDeg, betDeg, T) {
+  const eps = (23.439291 - 0.0130042 * T) * D2R, l = lamDeg * D2R, b = betDeg * D2R;
+  const ra = Math.atan2(Math.sin(l) * Math.cos(eps) - Math.tan(b) * Math.sin(eps), Math.cos(l));
+  const dec = Math.asin(Math.sin(b) * Math.cos(eps) + Math.cos(b) * Math.sin(eps) * Math.sin(l));
+  return { ra: norm360(ra * R2D), dec: dec * R2D };
+}
+function sunPos(ms) {
+  const n = julian(ms) - 2451545, T = n / 36525;
+  const L = 280.460 + 0.9856474 * n, g = (357.528 + 0.9856003 * n) * D2R;
+  const lam = L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g);
+  return { ...eclToEq(lam, 0, T), par: 0.00244 };
+}
+function moonPos(ms) {
+  const T = (julian(ms) - 2451545) / 36525, s = x => Math.sin(x * D2R), c = x => Math.cos(x * D2R);
+  const lam = 218.32 + 481267.881 * T + 6.29 * s(135.0 + 477198.87 * T) - 1.27 * s(259.3 - 413335.36 * T)
+    + 0.66 * s(235.7 + 890534.22 * T) + 0.21 * s(269.9 + 954397.74 * T) - 0.19 * s(357.5 + 35999.05 * T)
+    - 0.11 * s(186.5 + 966404.03 * T);
+  const bet = 5.13 * s(93.3 + 483202.02 * T) + 0.28 * s(228.2 + 960400.89 * T) - 0.28 * s(318.3 + 6003.15 * T)
+    - 0.17 * s(217.6 - 407332.21 * T);
+  const par = 0.9508 + 0.0518 * c(134.9 + 477198.85 * T) + 0.0095 * c(259.2 - 413335.38 * T)
+    + 0.0078 * c(235.7 + 890534.23 * T) + 0.0028 * c(269.9 + 954397.70 * T);
+  return { ...eclToEq(lam, bet, T), par };
+}
+// Topocentric hour angle (includes parallax — matters for the Moon)
+function hourAngle(body, ms, lat, lon) {
+  const b = body(ms);
+  const H = (lstDeg(ms, lon) - b.ra) * D2R, dec = b.dec * D2R, sp = Math.sin(b.par * D2R), rc = Math.cos(lat * D2R);
+  const dRa = Math.atan2(-rc * sp * Math.sin(H), Math.cos(dec) - rc * sp * Math.cos(H));
+  return norm360((H - dRa) * R2D);
+}
+// Seconds for one 360° turn at the body's current apparent rate
+function trackPeriod(body, ms, lat, lon) {
+  const dt = 600;
+  const h1 = hourAngle(body, ms - dt * 1000, lat, lon), h2 = hourAngle(body, ms + dt * 1000, lat, lon);
+  const rate = wrap180(h2 - h1) / (2 * dt);   // deg per second
+  return 360 / rate;
+}
+function altAz(body, ms, lat, lon) {
+  const b = body(ms), H = hourAngle(body, ms, lat, lon) * D2R, d = b.dec * D2R, f = lat * D2R;
+  const alt = Math.asin(Math.sin(f) * Math.sin(d) + Math.cos(f) * Math.cos(d) * Math.cos(H));
+  const az = Math.atan2(-Math.sin(H) * Math.cos(d), Math.cos(f) * Math.sin(d) - Math.sin(f) * Math.cos(d) * Math.cos(H));
+  return { alt: alt * R2D, az: norm360(az * R2D) };
+}
+
+// ---- Phone orientation -> direction of a phone axis (East, North, Up) ----
+// W3C DeviceOrientation rotation matrix (alpha, beta, gamma in degrees)
+function phoneAxisENU(alpha, beta, gamma, axis) {
+  const x = beta * D2R, y = gamma * D2R, z = alpha * D2R;
+  const cX = Math.cos(x), cY = Math.cos(y), cZ = Math.cos(z), sX = Math.sin(x), sY = Math.sin(y), sZ = Math.sin(z);
+  const m12 = -cX * sZ, m22 = cZ * cX, m32 = sX;                                         // device +Y (top edge)
+  const m13 = cY * sZ * sX + cZ * sY, m23 = sZ * sY - cZ * cY * sX, m33 = cX * cY;       // device +Z (screen)
+  if (axis === 'top') return [m12, m22, m32];
+  if (axis === 'screen') return [m13, m23, m33];
+  return [-m13, -m23, -m33];                                                              // 'back'
+}
+function enuToAltAz(v) {
+  const n = Math.hypot(v[0], v[1], v[2]);
+  return { alt: Math.asin(v[2] / n) * R2D, az: norm360(Math.atan2(v[0], v[1]) * R2D) };
+}
+
+
+
+// ===================== helpers =====================
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('gt_' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('gt_' + k, JSON.stringify(v)); } catch {} }
+};
+function log(s) { const el = $('log'); el.textContent = (new Date().toLocaleTimeString() + '  ' + s + '\n' + el.textContent).slice(0, 4000); }
+const fmtDeg = (d, n = 1) => (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(n) + '°';
+const fmtDMS = d => { const a = Math.abs(d), deg = Math.floor(a), m = (a - deg) * 60; return deg + '° ' + m.toFixed(1) + '′'; };
+
+// ===================== tabs & theme =====================
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('sel', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('show', s.id === b.dataset.tab));
+});
+if (store.get('white', false)) document.body.classList.add('white');
+$('btnTheme').onclick = () => { document.body.classList.toggle('white'); store.set('white', document.body.classList.contains('white')); };
+
+// ===================== Bluetooth =====================
+const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+let dev = null, rxChar = null, rxBuf = '', writeChain = Promise.resolve(), status = null;
+
+async function connect() {
+  if (!navigator.bluetooth) { alert('Bluetooth needs Chrome on Android, opened from an https address (see README).'); return; }
+  try {
+    dev = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'GenieTracker' }, { services: [NUS] }], optionalServices: [NUS] });
+    dev.addEventListener('gattserverdisconnected', onDisconnect);
+    await openGatt();
+  } catch (e) { log('Connect: ' + e.message); }
+}
+async function openGatt() {
+  const server = await dev.gatt.connect();
+  const svc = await server.getPrimaryService(NUS);
+  rxChar = await svc.getCharacteristic(NUS_RX);
+  const tx = await svc.getCharacteristic(NUS_TX);
+  await tx.startNotifications();
+  tx.addEventListener('characteristicvaluechanged', e => {
+    rxBuf += new TextDecoder().decode(e.target.value);
+    let i; while ((i = rxBuf.indexOf('\n')) >= 0) { const line = rxBuf.slice(0, i).trim(); rxBuf = rxBuf.slice(i + 1); if (line) onLine(line); }
+  });
+  $('bleDot').classList.add('on'); $('btnConnect').textContent = 'Connected';
+  log('Connected to ' + dev.name);
+  send('STATUS');
+  if (geo) send('SET HEMI ' + (geo.lat >= 0 ? 'N' : 'S'));
+}
+async function onDisconnect() {
+  $('bleDot').classList.remove('on'); $('btnConnect').textContent = 'Connect'; rxChar = null;
+  log('Disconnected — retrying…');
+  for (let i = 0; i < 5 && dev; i++) { try { await new Promise(r => setTimeout(r, 1500)); await openGatt(); return; } catch {} }
+}
+function send(cmd) {
+  if (!rxChar) { log('Not connected: ' + cmd); return; }
+  const data = new TextEncoder().encode(cmd);
+  writeChain = writeChain.then(() => rxChar.writeValue(data)).then(() => log('→ ' + cmd)).catch(e => log('Write failed: ' + e.message));
+}
+$('btnConnect').onclick = connect;
+
+function onLine(line) {
+  if (line[0] !== '{') { log('← ' + line); if (line.startsWith('ERR cal')) $('calOut').textContent = 'Calibration failed: sensor not counting. Check the magnet and AS5600 wiring.';
+    if (line.startsWith('CAL OK')) $('calOut').textContent = 'Saved: ' + line.slice(7) + ' counts per turn'; return; }
+  try { status = JSON.parse(line); } catch { return; }
+  const s = status;
+  $('sMode').textContent = s.m;
+  $('sRate').textContent = s.m === 'TRACK' ? ({ SID: 'Stars', SUN: 'Sun', MOON: 'Moon', CUSTOM: 'Custom' }[s.r] || s.r) + ' · ' + (s.per / 3600).toFixed(3) + ' h/turn' : '—';
+  $('sHemi').textContent = s.h === 'N' ? 'North' : 'South';
+  $('sTime').textContent = s.m === 'TRACK' ? Math.floor(s.t / 60) + ' min ' + Math.floor(s.t % 60) + ' s' : '—';
+  const errArc = s.e * 1296000 / s.cpr;
+  $('sErr').textContent = s.m === 'TRACK' ? (errArc >= 0 ? '' : '−') + Math.abs(errArc).toFixed(0) + '″' : '—';
+  $('sCpr').textContent = Math.round(s.cpr).toLocaleString();
+  const mag = ['OK', 'no magnet found', 'too far — move magnet closer', 'too close — move magnet away', 'sensor not answering — check wires'][s.mg] || '—';
+  $('sMag').textContent = mag + (s.mg === 0 ? ' (gain ' + s.agc + ')' : '');
+  $('sMag').className = s.mg === 0 ? 'ok' : '';
+  $('sFault').textContent = s.f === 'stall' ? '⚠ Motor stalled or sensor not counting — check magnet, wiring and load.' : '';
+  $('btnRev').textContent = 'Reverse direction: ' + (s.rv ? 'on' : 'off');
+  if (document.activeElement !== $('cprIn')) $('cprIn').value = Math.round(s.cpr);
+  if (document.activeElement !== $('kickIn')) $('kickIn').value = s.kd;
+}
+
+// ===================== Tracking controls =====================
+let target = 'SID';
+document.querySelectorAll('[data-target]').forEach(b => b.onclick = () => {
+  target = b.dataset.target;
+  document.querySelectorAll('[data-target]').forEach(x => x.classList.toggle('sel', x === b));
+  updateRateInfo();
+});
+function updateRateInfo() {
+  const now = Date.now();
+  if (target === 'SID') { $('rateInfo').textContent = 'Sidereal rate: 1 turn / 23 h 56 min 4 s'; return; }
+  const body = target === 'SUN' ? sunPos : moonPos;
+  if (!geo) { $('rateInfo').textContent = 'Get GPS on the Align tab for the exact ' + (target === 'SUN' ? 'Sun' : 'Moon') + ' rate (mean rate used until then).'; return; }
+  const per = trackPeriod(body, now, geo.lat, geo.lon), aa = altAz(body, now, geo.lat, geo.lon);
+  $('rateInfo').textContent = `Rate today: 1 turn / ${(per / 3600).toFixed(3)} h · now ${aa.alt.toFixed(0)}° high, azimuth ${aa.az.toFixed(0)}°` +
+    (aa.alt < 0 ? ' (below horizon)' : '') + '. Only the east–west motion is tracked; slow up/down drift remains.';
+}
+$('btnStart').onclick = () => {
+  if (geo) send('SET HEMI ' + (geo.lat >= 0 ? 'N' : 'S'));
+  if (target === 'SID') send('TRACK SID');
+  else if (!geo) send('TRACK ' + target);
+  else send('TRACK CUSTOM ' + trackPeriod(target === 'SUN' ? sunPos : moonPos, Date.now(), geo.lat, geo.lon).toFixed(1));
+  requestWake();
+};
+$('btnStop').onclick = () => send('STOP');
+document.querySelectorAll('[data-jog]').forEach(b => {
+  const go = e => { e.preventDefault(); send('JOG ' + b.dataset.jog); };
+  const stop = e => { e.preventDefault(); send('STOP'); };
+  b.addEventListener('pointerdown', go); b.addEventListener('pointerup', stop);
+  b.addEventListener('pointercancel', stop); b.addEventListener('pointerleave', e => { if (e.buttons) stop(e); });
+});
+document.querySelectorAll('[data-move]').forEach(b => b.onclick = () => send('MOVE ' + b.dataset.move));
+document.querySelectorAll('[data-hemi]').forEach(b => b.onclick = () => send('SET HEMI ' + b.dataset.hemi));
+
+// Setup
+$('btnCalStart').onclick = () => { send('CAL START'); $('calOut').textContent = 'Turning… tap Stop when the tape lines up.'; };
+$('btnCalStop').onclick = () => send('CAL STOP ' + Math.max(1, parseInt($('calTurns').value) || 1));
+$('btnRev').onclick = () => send('SET REV ' + (status && status.rv ? 0 : 1));
+$('btnCpr').onclick = () => send('SET CPR ' + $('cprIn').value);
+$('btnKick').onclick = () => send('SET KICK ' + $('kickIn').value);
+$('btnRaw').onclick = () => { send($('rawCmd').value.trim()); $('rawCmd').value = ''; };
+
+// Keep the screen on while tracking / aligning
+let wake = null;
+async function requestWake() { try { if ('wakeLock' in navigator && !wake) { wake = await navigator.wakeLock.request('screen'); wake.onrelease = () => wake = null; } } catch {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (sensorsOn)) requestWake(); });
+
+// ===================== GPS =====================
+let geo = store.get('geo', null);
+function applyGeo() {
+  if (!geo) return;
+  const dec = magDeclination(geo.lat, geo.lon, (geo.alt || 0) / 1000, decimalYear(new Date()));
+  geo.decl = dec;
+  const north = geo.lat >= 0;
+  $('aLat').textContent = geo.lat.toFixed(4) + '°';
+  $('aLon').textContent = geo.lon.toFixed(4) + '°' + (geo.when ? '  (fix ' + new Date(geo.when).toLocaleString() + ')' : '');
+  $('aHemi').textContent = north ? 'Northern' : 'Southern';
+  $('aDecl').textContent = Math.abs(dec).toFixed(1) + '° ' + (dec >= 0 ? 'east' : 'west') + ' (compass is corrected automatically)';
+  $('aTarget').textContent = `${north ? 'North' : 'South'} celestial pole: tilt ${Math.abs(geo.lat).toFixed(1)}° up, true ${north ? 'north (0°)' : 'south (180°)'}`;
+  const magDir = norm360((north ? 0 : 180) - dec);
+  $('lmDir').textContent = `(true ${north ? 'north' : 'south'} = ${magDir.toFixed(0)}° on a plain magnetic compass)`;
+  updateRateInfo(); drawPole(); updateDrift();
+}
+$('btnGps').onclick = () => {
+  if (!navigator.geolocation) { alert('No GPS available'); return; }
+  $('btnGps').textContent = 'Waiting for satellites…';
+  navigator.geolocation.getCurrentPosition(p => {
+    geo = { lat: p.coords.latitude, lon: p.coords.longitude, alt: p.coords.altitude || 0, when: Date.now() };
+    store.set('geo', geo); $('btnGps').textContent = 'Update GPS position'; applyGeo();
+    send('SET HEMI ' + (geo.lat >= 0 ? 'N' : 'S'));
+  }, e => { $('btnGps').textContent = 'Get GPS position'; alert('GPS: ' + e.message + '\nOutdoors with a clear view of the sky it can take 1–2 min without internet.'); },
+  { enableHighAccuracy: true, timeout: 180000, maximumAge: 600000 });
+};
+
+// ===================== Phone-sensor polar alignment =====================
+let sensorsOn = false, samples = [], lastAligned = false, beepOn = false, audioCtx = null;
+const errState = { total: null };
+function onOrient(e) {
+  if (e.alpha === null || e.beta === null) return;
+  samples.push(phoneAxisENU(e.alpha, e.beta, e.gamma, $('axisSel').value));
+  if (samples.length > 25) samples.shift();
+  compassHeading = norm360(360 - e.alpha);  // heading of the phone's top edge when flat (magnetic)
+}
+let compassHeading = null;
+async function startSensors() {
+  try { if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) await DeviceOrientationEvent.requestPermission(); } catch {}
+  if ('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', onOrient);
+  else window.addEventListener('deviceorientation', e => { if (e.absolute) onOrient(e); });
+  sensorsOn = true; $('btnSensors').textContent = 'Sensors running'; $('btnSensors').disabled = true;
+  requestWake();
+  setInterval(updateAlign, 200);
+}
+$('btnSensors').onclick = startSensors;
+$('axisSel').value = store.get('axis', 'screen');
+$('axisSel').onchange = () => { samples = []; store.set('axis', $('axisSel').value); };
+$('btnBeep').onclick = () => {
+  beepOn = !beepOn; $('btnBeep').textContent = 'Beep when aligned: ' + (beepOn ? 'on' : 'off');
+  if (beepOn && !audioCtx) try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+};
+function beep(f) {
+  if (!beepOn || !audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.frequency.value = f; g.gain.value = 0.15; o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + 0.12);
+}
+function updateAlign() {
+  if (!samples.length) return;
+  const v = [0, 0, 0]; samples.forEach(s => { v[0] += s[0]; v[1] += s[1]; v[2] += s[2]; });
+  const aa = enuToAltAz(v);
+  const decl = geo ? geo.decl : 0;
+  const trueAz = norm360(aa.az + decl);
+  $('axisNow').textContent = `${aa.alt.toFixed(1)}° up, true azimuth ${trueAz.toFixed(1)}°`;
+  if (compassHeading !== null) $('compassNow').textContent = `${norm360(compassHeading + decl).toFixed(0)}° (phone flat, top edge)`;
+  if (!geo) { $('alignMain').textContent = 'Get GPS first'; return; }
+  const north = geo.lat >= 0;
+  const dAlt = aa.alt - Math.abs(geo.lat);
+  const dAz = wrap180(trueAz - (north ? 0 : 180));
+  const total = Math.hypot(dAlt, dAz * Math.cos(Math.abs(geo.lat) * Math.PI / 180));
+  errState.total = total;
+  $('alignMain').innerHTML = total < 0.5 ? '<span class="ok">✓ Aligned ' + total.toFixed(1) + '°</span>' : total.toFixed(1) + '° off';
+  $('alignAlt').textContent = Math.abs(dAlt) < 0.2 ? 'Tilt OK' : (dAlt > 0 ? `Lower by ${dAlt.toFixed(1)}°` : `Raise by ${(-dAlt).toFixed(1)}°`);
+  $('alignAz').textContent = Math.abs(dAz) < 0.3 ? 'Direction OK' : (dAz > 0 ? `Turn left ${dAz.toFixed(1)}°` : `Turn right ${(-dAz).toFixed(1)}°`) + ' (standing behind the tracker, facing the pole)';
+  const pos = d => Math.max(2, Math.min(98, 50 + d * 8)) + '%';   // ±6° full scale
+  $('barAlt').style.left = pos(dAlt); $('barAz').style.left = pos(dAz);
+  const aligned = total < 0.5;
+  if (aligned && !lastAligned) { beep(1200); if (navigator.vibrate) navigator.vibrate(150); }
+  lastAligned = aligned;
+  updateDrift();
+}
+
+// ===================== Pole star finder =====================
+function drawPole() {
+  const cv = $('poleCanvas'), ctx = cv.getContext('2d'), W = cv.width, c = W / 2, R = W * 0.38;
+  ctx.clearRect(0, 0, W, W);
+  if (!geo) { $('psHint').textContent = 'Get GPS first.'; return; }
+  const ps = poleStar(Date.now(), geo.lat, geo.lon), north = geo.lat >= 0;
+  const col = getComputedStyle(document.body).getPropertyValue('--text'), dim = getComputedStyle(document.body).getPropertyValue('--dim');
+  ctx.strokeStyle = dim; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(c, c, R, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(c - 8, c); ctx.lineTo(c + 8, c); ctx.moveTo(c, c - 8); ctx.lineTo(c, c + 8); ctx.stroke();
+  ctx.fillStyle = dim; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('↑ zenith (up)', c, 16); ctx.fillText('horizon ↓', c, W - 6);
+  ctx.fillText(north ? 'W' : 'E', 12, c + 4); ctx.fillText(north ? 'E' : 'W', W - 12, c + 4);
+  const h = ps.ha * Math.PI / 180;
+  const x = c + (north ? -Math.sin(h) : Math.sin(h)) * R, y = c - Math.cos(h) * R;
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 6, 0, 7); ctx.fill();
+  ctx.fillText(ps.name, x, y - 12);
+  $('psTitle').textContent = north ? 'Polaris (when the sky clears)' : 'Sigma Octantis (when the sky clears)';
+  $('psName').textContent = ps.name;
+  $('psDist').textContent = fmtDMS(ps.dist) + ' (circle in the drawing)';
+  $('psClock').textContent = clockStr(ps.clock);
+  $('psClockInv').textContent = clockStr(ps.clockInv);
+  $('psHint').textContent = north
+    ? 'Drawing = what you see facing north with your eyes. Put Polaris at this spot on the circle, not dead centre.'
+    : 'Sigma Octantis is faint (mag 5.4). Follow the long bar of the Southern Cross ~4.5× its length to find the area; the drawing shows where the star sits around the pole.';
+}
+const clockStr = c => { const h = Math.floor(c), m = Math.round((c - h) * 60); return (h === 0 ? 12 : h) + ':' + String(m % 60).padStart(2, '0') + " o'clock"; };
+setInterval(() => { if (geo && document.querySelector('#align.show')) drawPole(); }, 10000);
+
+// ===================== Drift calculator =====================
+function updateDrift() {
+  const f = +$('dFocal').value || 24, mins = +$('dMin').value || 6, pix = +$('dPix').value || 4.3;
+  const scale = 206.265 * pix / f;                    // arcsec per pixel
+  const t = mins * 60, k = 2 * Math.PI * t / 86164;   // fraction of a sky turn during exposure
+  const tol = 1.5 * scale / (k * 3600);               // misalignment (deg) for 1.5 px drift
+  let s = `Your lens covers ${scale.toFixed(0)}″ per pixel. For a ${mins}-min exposure, keep alignment within ` +
+    `<b>${tol.toFixed(2)}°</b> to stay under ~1.5 px of drift.`;
+  if (errState.total !== null) {
+    const drift = errState.total * 3600 * k / scale;
+    s += ` Right now you're ${errState.total.toFixed(1)}° off → about <b>${drift.toFixed(1)} px</b> of worst-case drift.`;
+  }
+  $('driftOut').innerHTML = s;
+}
+['dFocal', 'dMin', 'dPix'].forEach(id => $(id).oninput = updateDrift);
+
+// ===================== start =====================
+applyGeo(); updateDrift(); updateRateInfo();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
