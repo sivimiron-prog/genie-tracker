@@ -68,6 +68,7 @@
       <button data-target="MOON">☾ Moon</button>
     </div>
     <div class="hint" id="rateInfo">Sidereal rate: 1 turn / 23 h 56 min</div>
+    <div class="hint" id="driftInfo"></div>
     <div class="row">
       <button class="big" id="btnStart">Start tracking</button>
     </div>
@@ -371,6 +372,18 @@ function hourAngle(body, ms, lat, lon) {
   const dRa = Math.atan2(-rc * sp * Math.sin(H), Math.cos(dec) - rc * sp * Math.cos(H));
   return norm360((H - dRa) * R2D);
 }
+// Topocentric declination (parallax included; matters for the Moon)
+function topoDec(body, ms, lat, lon) {
+  const b = body(ms);
+  const H = (lstDeg(ms, lon) - b.ra) * D2R, dec = b.dec * D2R, sp = Math.sin(b.par * D2R);
+  const rc = Math.cos(lat * D2R), rs = Math.sin(lat * D2R);
+  const dRa = Math.atan2(-rc * sp * Math.sin(H), Math.cos(dec) - rc * sp * Math.cos(H));
+  return Math.atan2((Math.sin(dec) - rs * sp) * Math.cos(dRa), Math.cos(dec) - rc * sp * Math.cos(H)) * R2D;
+}
+// North-south drift in degrees per hour (positive = moving north)
+function decRate(body, ms, lat, lon) {
+  return (topoDec(body, ms + 1800e3, lat, lon) - topoDec(body, ms - 1800e3, lat, lon));
+}
 // Seconds for one 360° turn at the body's current apparent rate
 function trackPeriod(body, ms, lat, lon) {
   const dt = 600;
@@ -492,21 +505,38 @@ document.querySelectorAll('[data-target]').forEach(b => b.onclick = () => {
 });
 function updateRateInfo() {
   const now = Date.now();
+  $('driftInfo').textContent = '';
   if (target === 'SID') { $('rateInfo').textContent = 'Sidereal rate: 1 turn / 23 h 56 min 4 s'; return; }
   const body = target === 'SUN' ? sunPos : moonPos;
   if (!geo) { $('rateInfo').textContent = 'Get GPS on the Align tab for the exact ' + (target === 'SUN' ? 'Sun' : 'Moon') + ' rate (mean rate used until then).'; return; }
   const per = trackPeriod(body, now, geo.lat, geo.lon), aa = altAz(body, now, geo.lat, geo.lon);
   $('rateInfo').textContent = `Rate today: 1 turn / ${(per / 3600).toFixed(3)} h · now ${aa.alt.toFixed(0)}° high, azimuth ${aa.az.toFixed(0)}°` +
-    (aa.alt < 0 ? ' (below horizon)' : '') + '. Only the east–west motion is tracked; slow up/down drift remains.';
+    (aa.alt < 0 ? ' (below horizon)' : '') + '.' + (autoRate ? ' Rate refreshes automatically every 10 min.' : '');
+  const dr = decRate(body, now, geo.lat, geo.lon), name = target === 'SUN' ? 'Sun' : 'Moon';
+  const dir = dr >= 0 ? 'north' : 'south', toward = (dr >= 0) === (geo.lat >= 0) ? 'toward the pole star' : 'away from the pole star';
+  const opp = (dr >= 0) === (geo.lat >= 0) ? 'away from the pole star' : 'toward the pole star';
+  const widths = Math.abs(dr) / 0.52;
+  $('driftInfo').innerHTML = `Drift right now: the ${name} moves <b>${dir}</b> (${toward}) about <b>${Math.abs(dr).toFixed(2)}°/h</b>` +
+    ` — ${widths.toFixed(1)} ${name} widths per hour, ${(Math.abs(dr) * 3).toFixed(1)}° in 3 h.` +
+    (Math.abs(dr) > 0.02 ? ` Framing tip: start with the ${name} a little off-centre, ${opp}, so it drifts across the frame instead of out of it.` : ' Practically no drift.');
 }
+// Auto-refresh the Sun/Moon rate while tracking (the Moon's speed changes through the night)
+let autoRate = null;
+setInterval(() => {
+  if (!autoRate || !geo || !status || status.m !== 'TRACK') return;
+  const per = trackPeriod(autoRate === 'SUN' ? sunPos : moonPos, Date.now(), geo.lat, geo.lon);
+  send('TRACK CUSTOM ' + per.toFixed(1)); log('Rate refreshed: ' + (per / 3600).toFixed(4) + ' h/turn');
+}, 10 * 60 * 1000);
+setInterval(() => { if (target !== 'SID') updateRateInfo(); }, 60 * 1000);
 $('btnStart').onclick = () => {
   if (geo) send('SET HEMI ' + (geo.lat >= 0 ? 'N' : 'S'));
   if (target === 'SID') send('TRACK SID');
   else if (!geo) send('TRACK ' + target);
   else send('TRACK CUSTOM ' + trackPeriod(target === 'SUN' ? sunPos : moonPos, Date.now(), geo.lat, geo.lon).toFixed(1));
-  requestWake();
+  autoRate = (target !== 'SID' && geo) ? target : null;
+  updateRateInfo(); requestWake();
 };
-$('btnStop').onclick = () => send('STOP');
+$('btnStop').onclick = () => { autoRate = null; send('STOP'); updateRateInfo(); };
 document.querySelectorAll('[data-jog]').forEach(b => {
   const go = e => { e.preventDefault(); send('JOG ' + b.dataset.jog); };
   const stop = e => { e.preventDefault(); send('STOP'); };
