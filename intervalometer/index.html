@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Intervalometer</title>
+<style>
+/* VOICE: the real device page, shown as it will look on the phone
+   IDEA: a phone screen on a tripod-side table at dusk
+   PICTURE: the working control page itself, simulated
+   COLOUR and TYPE: the device's own dark UI, system font
+   LAYOUT: one centred phone column, small note under it */
+:root{color-scheme:light dark;--bg:light-dark(#e9e6e1,#0b0b0c);--note:light-dark(#55524c,#9a978f)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:clip}
+.wrap{min-height:100vh;display:flex;flex-direction:column}
+#ph{flex:1;width:100%;background:#111;color:#eee;padding:clamp(12px,3vw,32px);font-size:clamp(16px,1.5vw,20px)}
+#ph h1{font-size:clamp(22px,3vw,34px);margin:0 0 16px;font-weight:600}
+.card{background:#1d1d1d;border-radius:14px;padding:clamp(14px,2vw,24px);margin-bottom:clamp(12px,1.5vw,18px)}
+label{display:flex;justify-content:space-between;align-items:center;margin:10px 0;gap:10px}
+select,input{width:clamp(110px,14vw,180px);padding:10px;border-radius:8px;border:1px solid #444;background:#000;color:#eee;font-size:max(16px,1em)}
+input[type=checkbox]{width:28px;height:28px;accent-color:#1565c0}
+button{width:100%;min-height:46px;padding:clamp(14px,1.6vw,20px);font-size:inherit;border:0;border-radius:10px;margin-top:8px;color:#fff;cursor:pointer}
+.btns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.btns button{margin:0}
+@media(min-width:800px){.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:40px}}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #64b5f6;outline-offset:2px}
+.go{background:#2e7d32}.stop{background:#c62828}.test{background:#455a64}.save{background:#1565c0}
+#st{font-size:clamp(24px,4vw,44px);font-weight:600}.sub{color:#aaa;font-size:max(13px,.85em);margin-top:4px;line-height:1.5}
+.bulb,.ble{display:none}
+.note{background:#111;color:#8a8a8a;font-size:13px;text-align:center;margin:0;padding:0 16px 16px}
+</style></head><body>
+<div class="wrap">
+<div id="ph">
+<h1>Smart Intervalometer</h1>
+<div class=card><div id=st>Idle</div><div class=sub id=info></div></div>
+<div class=card>
+<label>Camera link<select id=link><option value=0>Cable</option><option value=1>Bluetooth</option></select></label>
+<div class=ble><div class=sub id=bles></div>
+<button class=test id=pairBtn>Pair camera</button>
+<div class=sub>Camera: Wireless settings › Bluetooth › Remote › Pairing, then press Pair.</div></div>
+<div class=grid>
+<label>Interval (s)<input id=intervalS type=number step=0.1 min=0.5 value=30></label>
+<label>Shots (0 = ∞)<input id=shots type=number min=0 value=200></label>
+<label>Start delay (s)<input id=delayS type=number step=0.1 min=0 value=3></label>
+<label>Focus pre-press (ms)<input id=focusMs type=number min=0 step=50 value=0></label>
+<label>Bulb ramping<input id=bulb type=checkbox checked></label>
+<label class=bulb>Start exposure (s)<input id=expStartS type=number step=0.1 min=0.1 value=0.5></label>
+<label class=bulb>End exposure (s)<input id=expEndS type=number step=0.1 min=0.1 value=25></label>
+<label class=bulb>Hold start for (shots)<input id=holdShots type=number min=0 value=20></label>
+<label class=bulb>Ramp over (shots, 0 = rest)<input id=rampShots type=number min=0 value=160></label>
+<label class=bulb>Ramp by stops<input id=expRamp type=checkbox checked></label>
+</div>
+<div class=sub id=est></div>
+<button class=save id=saveBtn>Save settings</button>
+</div>
+<div class=btns>
+<button class=go id=startBtn>Start</button>
+<button class=stop id=stopBtn>Stop</button>
+<button class=test id=testBtn>Test shot</button>
+</div>
+</div>
+<p class="note">Preview with a simulated XIAO, running 10× faster than real time. On the real device, join the Smart-Intervalometer Wi-Fi and open 192.168.4.1.</p>
+</div>
+<script>
+{
+const F=['intervalS','shots','delayS','focusMs','expStartS','expEndS','holdShots','rampShots'];
+const $=id=>document.getElementById(id);
+const SPD=10;
+let S={state:'Idle',taken:0,nextAt:0,exp:0,t0:0,phaseEnd:0,test:false},ble='Not paired',msg='';
+const now=()=>performance.now()*SPD/1000;
+const lk=()=>{document.querySelector('.ble').style.display=$('link').value=='1'?'block':'none';poll()};
+const tb=()=>{document.querySelectorAll('.bulb').forEach(e=>e.style.display=$('bulb').checked?'flex':'none');est()};
+function est(){const n=+$('shots').value,i=+$('intervalS').value;let s='';
+ if(n>0){const t=n*i;s=`Run time ≈ ${Math.floor(t/3600)}h ${Math.round(t%3600/60)}m · ${(n/25).toFixed(1)} s of video @25fps`}
+ if($('bulb').checked){const a=Math.max(.1,+$('expStartS').value),b=Math.max(.1,+$('expEndS').value);
+  const r=+$('rampShots').value||Math.max(0,n-(+$('holdShots').value));const st=Math.log2(b/a);
+  if(r>1)s+=`<br>Ramp: ${st.toFixed(1)} stops over ${r} shots (${(r*i/60).toFixed(0)} min)`+($('expRamp').checked?` · ${(st/(r-1)*3).toFixed(2)} thirds of a stop per shot`:'');
+  if(Math.max(a,b)+1.5>i)s+='<br>⚠ Interval is too short for the longest exposure'}
+ $('est').innerHTML=s}
+function expFor(i){if(!$('bulb').checked)return .12;const n=+$('shots').value,h=+$('holdShots').value;let r=+$('rampShots').value;if(!r&&n>h)r=n-h;
+ let t=i<h?0:(r<=1?1:(i-h)/(r-1));if(!r)t=0;t=Math.min(1,t);const a=Math.max(.1,+$('expStartS').value),b=Math.max(.1,+$('expEndS').value);
+ return $('expRamp').checked?a*Math.pow(b/a,t):a+(b-a)*t}
+function tick(){const t=now();
+ if((S.state=='Start delay'||S.state=='Waiting')&&t>=S.nextAt){S.exp=expFor(S.taken);S.phaseEnd=t+S.exp;S.state='Exposing'}
+ else if(S.state=='Exposing'&&t>=S.phaseEnd){if(S.test){S.state='Idle';S.test=false;return}
+  S.taken++;const n=+$('shots').value;if(n&&S.taken>=n){S.state='Idle';return}
+  S.nextAt=Math.max(S.nextAt+(+$('intervalS').value),t+1);S.state='Waiting'}}
+function poll(){const t=now(),useBle=$('link').value=='1';$('st').textContent=msg||S.state;
+ let s=`Shots: ${S.taken}${+$('shots').value?' / '+$('shots').value:''}`;
+ if(S.state!='Idle'){const nx=S.state=='Exposing'?0:Math.max(0,S.nextAt-t);s+=` · Next in ${nx.toFixed(1)} s`;
+  if($('bulb').checked)s+=` · Exp ${(S.state=='Exposing'?S.exp:expFor(S.taken)).toFixed(1)} s`;
+  const el=Math.floor(t-S.t0);s+=` · Elapsed ${Math.floor(el/60)}m ${el%60}s`}
+ if(useBle)s+=` · Bluetooth: ${ble}`;$('info').textContent=s;$('bles').textContent='Bluetooth: '+ble}
+F.forEach(f=>$(f).addEventListener('input',est));
+$('link').addEventListener('change',lk);
+$('bulb').addEventListener('change',tb);
+$('expRamp').addEventListener('change',est);
+$('saveBtn').addEventListener('click',()=>{msg='Saved';setTimeout(()=>{msg=''},800)});
+$('startBtn').addEventListener('click',()=>{S={state:'Start delay',taken:0,t0:now(),nextAt:now()+(+$('delayS').value),test:false}});
+$('stopBtn').addEventListener('click',()=>{S.state='Idle'});
+$('testBtn').addEventListener('click',()=>{if(S.state!='Idle')return;const e=expFor(0);S={...S,state:'Exposing',test:true,exp:e,phaseEnd:now()+e,t0:now()}});
+$('pairBtn').addEventListener('click',()=>{ble='Searching';setTimeout(()=>{ble='Paired'},2500)});
+tb();lk();setInterval(tick,50);setInterval(poll,250);poll();
+}
+</script>
+</body></html>
